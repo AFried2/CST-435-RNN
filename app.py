@@ -1,7 +1,8 @@
-import tensorflow as tf  # <-- MOVED TO LINE 1
+import tensorflow as tf
 import streamlit as st
 import numpy as np
 import pickle
+import os # <-- ADDED OS MODULE
 from tensorflow.keras.models import load_model
 from tensorflow.keras.preprocessing.sequence import pad_sequences
 from sklearn.metrics.pairwise import cosine_similarity
@@ -42,16 +43,24 @@ def load_all_artifacts():
     
     # Load GloVe to build embedding matrix for cosine similarity
     embeddings_index = {}
-    try:
-        with open(GLOVE_FILE, 'r', encoding='utf-8') as f:
-            for line in f:
-                values = line.split()
-                word = values[0]
-                coefs = np.asarray(values[1:], dtype='float32')
-                embeddings_index[word] = coefs
-    except FileNotFoundError:
-        st.error(f"GloVe file not found at {GLOVE_FILE}. Word embedding exploration will not work.")
-        embeddings_index = {} # Continue without it
+    glove_full_path = GLOVE_FILE # Assume file is in the current directory
+    
+    # --- START REVISED GLOVE LOADING LOGIC ---
+    if not os.path.exists(glove_full_path):
+        st.warning(f"GloVe file NOT found at: {glove_full_path}. Word embedding exploration will not work.")
+    else:
+        st.info(f"Attempting to load GloVe file from: {glove_full_path}") # Added log for debugging
+        try:
+            with open(glove_full_path, 'r', encoding='utf-8') as f:
+                for line in f:
+                    values = line.split()
+                    word = values[0]
+                    coefs = np.asarray(values[1:], dtype='float32')
+                    embeddings_index[word] = coefs
+            st.success(f"Successfully loaded {len(embeddings_index)} word vectors from GloVe.")
+        except Exception as e:
+            st.error(f"An error occurred while reading the GloVe file: {e}")
+    # --- END REVISED GLOVE LOADING LOGIC ---
 
     embedding_matrix = np.zeros((vocab_size, EMBEDDING_DIM))
     for word, i in tokenizer.word_index.items():
