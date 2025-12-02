@@ -1,32 +1,33 @@
-import tensorflow as tf  # <-- MOVED TO LINE 1
+import tensorflow as tf
 import streamlit as st
 import numpy as np
 import pickle
 from tensorflow.keras.models import load_model
 from tensorflow.keras.preprocessing.sequence import pad_sequences
-from sklearn.metrics.pairwise import cosine_similarity
+# from sklearn.metrics.pairwise import cosine_similarity # <-- REMOVED
 import re
 
 # --- Configuration ---
 MODEL_PATH = 'best_model.keras'
 TOKENIZER_PATH = 'tokenizer.pkl'
 SEQ_LEN_PATH = 'sequence_len.pkl'
-GLOVE_FILE = 'glove.6B/glove.6B.100d.txt'
-EMBEDDING_DIM = 100
+# GLOVE_FILE = 'glove.6B/glove.6B.100d.txt' # <-- REMOVED
+# EMBEDDING_DIM = 100 # <-- REMOVED (No longer used globally for embedding matrix)
 
 # --- Caching: Load Models and Data Once ---
 # Use @st.cache_resource to load models only once
 @st.cache_resource
 def load_all_artifacts():
     """
-    Loads the trained model, tokenizer, sequence length, and embedding matrix.
+    Loads the trained model, tokenizer, and sequence length.
+    GloVe loading and embedding matrix generation have been removed.
     """
     try:
         model = load_model(MODEL_PATH)
     except Exception as e:
         st.error(f"Error loading model from {MODEL_PATH}: {e}")
         st.error("Please make sure you have run the 'model_training.ipynb' notebook to generate 'best_model.keras'.")
-        return None, None, None, None, None
+        return None, None, None, None
 
     try:
         with open(TOKENIZER_PATH, 'rb') as f:
@@ -36,44 +37,28 @@ def load_all_artifacts():
     except FileNotFoundError as e:
         st.error(f"Error loading pickle file: {e}")
         st.error("Please make sure 'tokenizer.pkl' and 'sequence_len.pkl' are in the same directory.")
-        return None, None, None, None, None
+        return None, None, None, None
 
     vocab_size = len(tokenizer.word_index) + 1
     
-    # Load GloVe to build embedding matrix for cosine similarity
-    embeddings_index = {}
-    try:
-        with open(GLOVE_FILE, 'r', encoding='utf-8') as f:
-            for line in f:
-                values = line.split()
-                word = values[0]
-                coefs = np.asarray(values[1:], dtype='float32')
-                embeddings_index[word] = coefs
-    except FileNotFoundError:
-        st.error(f"GloVe file not found at {GLOVE_FILE}. Word embedding exploration will not work.")
-        embeddings_index = {} # Continue without it
-
-    embedding_matrix = np.zeros((vocab_size, EMBEDDING_DIM))
-    for word, i in tokenizer.word_index.items():
-        embedding_vector = embeddings_index.get(word)
-        if embedding_vector is not None:
-            embedding_matrix[i] = embedding_vector
+    # --- GLOVE LOADING AND EMBEDDING MATRIX CREATION REMOVED ---
+    # We set embedding_matrix to None and only return the necessary artifacts.
+    embedding_matrix = None 
 
     return model, tokenizer, sequence_len, embedding_matrix, vocab_size
 
 # --- Load Artifacts ---
+# embedding_matrix will be None
 model, tokenizer, sequence_len, embedding_matrix, vocab_size = load_all_artifacts()
 
 # --- Helper Functions ---
 def clean_input_text(text):
-    # ... (this function is unchanged)
     text = text.lower()
     text = re.sub(r'[^a-z\s]', '', text)
     text = re.sub(r'\s+', ' ', text).strip()
     return text
 
 def predict_next_words(seed_text, top_k=5):
-    # ... (this function is unchanged)
     if model is None:
         return [], []
         
@@ -138,31 +123,8 @@ def generate_text_sequence(seed_text, num_words, temperature=0.7):
         
     return generated_text
 
-def find_similar_words(word, top_n=5):
-    # ... (this function is unchanged)
-    if embedding_matrix is None or not embedding_matrix.any():
-        return [], 0
-        
-    word = clean_input_text(word)
-    if word not in tokenizer.word_index:
-        return [], 1
-    
-    word_idx = tokenizer.word_index[word]
-    word_vec = embedding_matrix[word_idx].reshape(1, -1)
-    
-    if np.all(word_vec == 0):
-        return [], 2
-        
-    similarities = cosine_similarity(word_vec, embedding_matrix)
-    similar_indices = similarities[0].argsort()[-(top_n+1):][::-1]
-    
-    results = []
-    for idx in similar_indices:
-        if idx != 0 and idx != word_idx:
-            results.append((tokenizer.index_word[idx], similarities[0][idx]))
-            
-    return results, 0
-
+# --- find_similar_words FUNCTION REMOVED --- 
+# It relies on embedding_matrix and cosine_similarity.
 
 # --- Streamlit UI ---
 st.set_page_config(page_title="RNN Text Generator", layout="wide")
@@ -175,8 +137,9 @@ if model is None:
 
 # --- Sidebar Navigation ---
 st.sidebar.title("Navigation")
+# 'Explore Word Embeddings' option removed from the list
 app_mode = st.sidebar.selectbox("Choose a feature:",
-    ["🤖 Next-Word Prediction", "✍️ Free-Form Text Generation", "🔬 Explore Word Embeddings", "📊 Project Overview"]
+    ["🤖 Next-Word Prediction", "✍️ Free-Form Text Generation", "📊 Project Overview"] 
 )
 
 # --- Page 1: Next-Word Prediction (Shows Probabilities) ---
@@ -205,8 +168,8 @@ elif app_mode == "✍️ Free-Form Text Generation":
     
     # --- ADD THIS SLIDER ---
     temp_slider = st.slider("Generation Temperature (Creativity):", 
-                            min_value=0.1, max_value=1.5, 
-                            value=0.7, step=0.1)
+                             min_value=0.1, max_value=1.5, 
+                             value=0.7, step=0.1)
     
     num_words = st.slider("Number of words to generate:", 1, 50, 20)
 
@@ -220,28 +183,10 @@ elif app_mode == "✍️ Free-Form Text Generation":
         else:
             st.warning("Please enter some seed text.")
 
-# --- Page 3: Explore Word Embeddings ---
-elif app_mode == "🔬 Explore Word Embeddings":
-    st.header("🔬 Explore Word Embeddings (GloVe + Cosine Similarity)")
-    st.write("This feature does not use the RNN. Instead, it lets you explore the 100-dimensional GloVe vectors that were used as input. Words with similar meanings should have similar vectors.")
-    
-    if not embedding_matrix.any():
-        st.error("Word Embedding exploration is unavailable. GloVe file not loaded.")
-    else:
-        word_to_check = st.text_input("Enter a single word from the vocabulary:", "wonderland")
-        
-        if st.button("Find Similar Words"):
-            similar_results, err_code = find_similar_words(word_to_check)
-            if err_code == 1:
-                st.warning(f"'{word_to_check}' is not in the model's vocabulary.")
-            elif err_code == 2:
-                st.info(f"'{word_to_check}' is in the vocabulary but has no pre-trained GloVe embedding (it's an 'Out-of-Vocabulary' word for GloVe).")
-            elif similar_results:
-                st.subheader(f"Words similar to '{word_to_check}':")
-                for word, sim in similar_results:
-                    st.write(f"**{word}** (Similarity: `{sim:.4f}`)")
+# --- Page 3: Explore Word Embeddings (REMOVED) ---
+# The original content for this section has been removed to eliminate the dependency on GloVe.
 
-# --- Page 4: Project Overview ---
+# --- Page 4: Project Overview (Now the 3rd option) ---
 elif app_mode == "📊 Project Overview":
     st.header("📊 Project Overview")
     st.write("This page summarizes the project, fulfilling the assignment's documentation requirements.")
@@ -267,18 +212,18 @@ elif app_mode == "📊 Project Overview":
     model_summary = """
     Model: "sequential"
     _________________________________________________________________
-     Layer (type)                Output Shape              Param #   
+     Layer (type)                 Output Shape              Param #   
     =================================================================
-     embedding (Embedding)       (None, 10, 100)           264800    
-                                                                     
-     lstm (LSTM)                 (None, 150)               150600    
-                                                                     
-     dense (Dense)               (None, 256)               38656     
-                                                                     
-     dropout (Dropout)           (None, 256)               0         
-                                                                     
-     dense_1 (Dense)             (None, 2648)              680360    
-                                                                     
+     embedding (Embedding)        (None, 10, 100)           264800    
+                                                                      
+     lstm (LSTM)                  (None, 150)               150600    
+                                                                      
+     dense (Dense)                (None, 256)               38656     
+                                                                      
+     dropout (Dropout)            (None, 256)               0         
+                                                                      
+     dense_1 (Dense)              (None, 2648)              680360    
+                                                                      
     =================================================================
     Total params: 1,134,416
     Trainable params: 869,616
