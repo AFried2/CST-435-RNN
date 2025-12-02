@@ -1,4 +1,4 @@
-import tensorflow as tf
+import tensorflow as tf  # <-- MOVED TO LINE 1
 import streamlit as st
 import numpy as np
 import pickle
@@ -6,66 +6,13 @@ from tensorflow.keras.models import load_model
 from tensorflow.keras.preprocessing.sequence import pad_sequences
 from sklearn.metrics.pairwise import cosine_similarity
 import re
-import requests
-import os
-import zipfile
 
 # --- Configuration ---
 MODEL_PATH = 'best_model.keras'
 TOKENIZER_PATH = 'tokenizer.pkl'
 SEQ_LEN_PATH = 'sequence_len.pkl'
-GLOVE_DIR = 'glove.6B'
-GLOVE_FILE_NAME = 'glove.6B.100d.txt'
-GLOVE_FILE_PATH = os.path.join(GLOVE_DIR, GLOVE_FILE_NAME)
-GLOVE_ZIP_URL = "http://nlp.stanford.edu/data/glove.6B.zip" 
+GLOVE_FILE = 'glove.6B.100d.txt'
 EMBEDDING_DIM = 100
-
-# --- Download Helper Function ---
-def download_and_extract_glove():
-    """Checks for the GloVe file, downloads the zip if missing, and unzips the file."""
-    
-    # 1. Check if the file already exists
-    if os.path.exists(GLOVE_FILE_PATH):
-        st.success(f"GloVe file found at {GLOVE_FILE_PATH}")
-        return True
-        
-    st.info(f"GloVe file not found. Downloading and extracting '{GLOVE_FILE_NAME}' (~40MB). This will only happen once.")
-    
-    # 2. Define paths and download
-    zip_path = "glove.6B.zip"
-    try:
-        # Download the ZIP file
-        response = requests.get(GLOVE_ZIP_URL, stream=True)
-        response.raise_for_status() # Check for request errors
-        
-        total_size_in_bytes = int(response.headers.get('content-length', 0))
-        block_size = 1024 # 1 Kibibyte
-        progress_bar = st.progress(0, text="Starting download...")
-        
-        with open(zip_path, 'wb') as f:
-            downloaded = 0
-            for data in response.iter_content(block_size):
-                downloaded += len(data)
-                f.write(data)
-                progress_bar.progress(int(downloaded * 100 / total_size_in_bytes), text=f"Downloading: {int(downloaded * 100 / total_size_in_bytes)}%")
-        
-        progress_bar.progress(100, text="Download complete. Extracting...")
-        
-        # 3. Unzip the file
-        with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-            # Ensure the directory structure is created
-            os.makedirs(GLOVE_DIR, exist_ok=True)
-            zip_ref.extract(GLOVE_FILE_NAME, path=GLOVE_DIR)
-            
-        # 4. Clean up the zip file
-        os.remove(zip_path)
-        progress_bar.progress(100, text="Extraction complete. Loading model...")
-
-        return True
-        
-    except Exception as e:
-        st.error(f"Failed to download or unzip GloVe file: {e}")
-        return False
 
 # --- Caching: Load Models and Data Once ---
 # Use @st.cache_resource to load models only once
@@ -73,13 +20,7 @@ def download_and_extract_glove():
 def load_all_artifacts():
     """
     Loads the trained model, tokenizer, sequence length, and embedding matrix.
-    Includes programmatic download of GloVe.
     """
-    # 0. Download GloVe first
-    if not download_and_extract_glove():
-        st.warning("Skipping GloVe loading due to download error.")
-    
-    # --- Load Model ---
     try:
         model = load_model(MODEL_PATH)
     except Exception as e:
@@ -87,7 +28,6 @@ def load_all_artifacts():
         st.error("Please make sure you have run the 'model_training.ipynb' notebook to generate 'best_model.keras'.")
         return None, None, None, None, None
 
-    # --- Load Tokenizer and Seq_Len ---
     try:
         with open(TOKENIZER_PATH, 'rb') as f:
             tokenizer = pickle.load(f)
@@ -100,20 +40,19 @@ def load_all_artifacts():
 
     vocab_size = len(tokenizer.word_index) + 1
     
-    # --- Load GloVe and Build Embedding Matrix ---
+    # Load GloVe to build embedding matrix for cosine similarity
     embeddings_index = {}
-    if os.path.exists(GLOVE_FILE_PATH):
-        try:
-            with open(GLOVE_FILE_PATH, 'r', encoding='utf-8') as f:
-                for line in f:
-                    values = line.split()
-                    word = values[0]
-                    coefs = np.asarray(values[1:], dtype='float32')
-                    embeddings_index[word] = coefs
-        except Exception as e:
-             st.error(f"Error reading GloVe file: {e}")
-             embeddings_index = {}
-    
+    try:
+        with open(GLOVE_FILE, 'r', encoding='utf-8') as f:
+            for line in f:
+                values = line.split()
+                word = values[0]
+                coefs = np.asarray(values[1:], dtype='float32')
+                embeddings_index[word] = coefs
+    except FileNotFoundError:
+        st.error(f"GloVe file not found at {GLOVE_FILE}. Word embedding exploration will not work.")
+        embeddings_index = {} # Continue without it
+
     embedding_matrix = np.zeros((vocab_size, EMBEDDING_DIM))
     for word, i in tokenizer.word_index.items():
         embedding_vector = embeddings_index.get(word)
@@ -127,12 +66,14 @@ model, tokenizer, sequence_len, embedding_matrix, vocab_size = load_all_artifact
 
 # --- Helper Functions ---
 def clean_input_text(text):
+    # ... (this function is unchanged)
     text = text.lower()
     text = re.sub(r'[^a-z\s]', '', text)
     text = re.sub(r'\s+', ' ', text).strip()
     return text
 
 def predict_next_words(seed_text, top_k=5):
+    # ... (this function is unchanged)
     if model is None:
         return [], []
         
@@ -152,7 +93,7 @@ def predict_next_words(seed_text, top_k=5):
     
     return top_words, top_probs
 
-# --- ADDED: Sampling function for text generation ---
+# --- ADD THIS NEW HELPER FUNCTION ---
 def sample(preds, temperature=1.0):
     """
     Helper function to sample an index from a probability array
@@ -164,7 +105,7 @@ def sample(preds, temperature=1.0):
     probas = np.random.multinomial(1, preds, 1)
     return np.argmax(probas)
 
-# --- REPLACED: Text generation function with temperature sampling ---
+# --- REPLACE THE OLD generate_text_sequence FUNCTION ---
 def generate_text_sequence(seed_text, num_words, temperature=0.7):
     """
     Generates a sequence of text using temperature sampling.
@@ -198,6 +139,7 @@ def generate_text_sequence(seed_text, num_words, temperature=0.7):
     return generated_text
 
 def find_similar_words(word, top_n=5):
+    # ... (this function is unchanged)
     if embedding_matrix is None or not embedding_matrix.any():
         return [], 0
         
@@ -261,17 +203,16 @@ elif app_mode == "✍️ Free-Form Text Generation":
 
     seed_text_gen = st.text_area("Enter your starting text:", "the white rabbit ran")
     
-    # --- UPDATED SLIDER for Temperature ---
+    # --- ADD THIS SLIDER ---
     temp_slider = st.slider("Generation Temperature (Creativity):", 
                             min_value=0.1, max_value=1.5, 
-                            value=0.7, step=0.1, 
-                            help="Lower temperatures (e.g., 0.2) lead to more predictable, conservative text. Higher temperatures (e.g., 1.2) lead to more diverse, creative, and sometimes nonsensical text.")
+                            value=0.7, step=0.1)
     
     num_words = st.slider("Number of words to generate:", 1, 50, 20)
 
     if st.button("Generate Text"):
         if seed_text_gen:
-            # --- UPDATED CALL to pass TEMPERATURE ---
+            # --- UPDATE THIS LINE TO PASS THE TEMPERATURE ---
             generated_output = generate_text_sequence(seed_text_gen, num_words, temp_slider)
             
             st.subheader("Generated Text:")
@@ -284,10 +225,8 @@ elif app_mode == "🔬 Explore Word Embeddings":
     st.header("🔬 Explore Word Embeddings (GloVe + Cosine Similarity)")
     st.write("This feature does not use the RNN. Instead, it lets you explore the 100-dimensional GloVe vectors that were used as input. Words with similar meanings should have similar vectors.")
     
-    if not os.path.exists(GLOVE_FILE_PATH):
-        st.error("Word Embedding exploration is unavailable. GloVe file was not found or downloaded successfully.")
-    elif not embedding_matrix.any():
-        st.error("Word Embedding exploration is unavailable. GloVe file loaded, but no embeddings matched the vocabulary.")
+    if not embedding_matrix.any():
+        st.error("Word Embedding exploration is unavailable. GloVe file not loaded.")
     else:
         word_to_check = st.text_input("Enter a single word from the vocabulary:", "wonderland")
         
@@ -324,6 +263,7 @@ elif app_mode == "📊 Project Overview":
     5.  **Output Layer**: A `softmax` layer with `vocab_size` units, producing a probability for every word.
     """)
     
+    # Capture model.summary() from your notebook and paste it here as a string
     model_summary = """
     Model: "sequential"
     _________________________________________________________________
@@ -345,6 +285,8 @@ elif app_mode == "📊 Project Overview":
     Non-trainable params: 264,800
     _________________________________________________________________
     """
+    # Note: Your param numbers might vary slightly based on vocab size.
+    # Update the summary above from your notebook's output.
     st.code(model_summary, language='text')
 
     st.subheader("c) Analysis of Findings")
